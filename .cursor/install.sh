@@ -16,16 +16,22 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
+# The base image ships a script-modified /etc/fuse.conf, so installing fuse3
+# triggers an interactive dpkg conffile prompt that hangs a non-interactive
+# build. Force dpkg to keep the existing config without prompting.
+APT_INSTALL=(sudo apt-get install -y -qq --no-install-recommends
+  -o Dpkg::Options::=--force-confdef
+  -o Dpkg::Options::=--force-confold)
+
 echo "==> apt update"
 sudo apt-get update -qq
 
 echo "==> install base tooling (shellcheck, fuse-overlayfs, iptables)"
-sudo apt-get install -y -qq --no-install-recommends \
+"${APT_INSTALL[@]}" \
   ca-certificates curl gnupg \
   shellcheck fuse3 fuse-overlayfs uidmap iptables
 
-# Some container images ship an /etc/fuse.conf that triggers an interactive
-# conffile prompt; make sure any half-configured fuse packages settle.
+# Belt-and-suspenders: settle any package left half-configured by a prior run.
 sudo dpkg --configure -a --force-confdef --force-confold >/dev/null 2>&1 || true
 
 echo "==> install Docker CE from the official Docker apt repository"
@@ -41,7 +47,7 @@ if ! command -v dockerd >/dev/null 2>&1; then
     "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
     | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
   sudo apt-get update -qq
-  sudo apt-get install -y -qq \
+  "${APT_INSTALL[@]}" \
     docker-ce docker-ce-cli containerd.io docker-buildx-plugin
 fi
 
